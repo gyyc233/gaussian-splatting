@@ -45,6 +45,7 @@ class SceneInfo(NamedTuple):
     ply_path: str
     is_nerf_synthetic: bool
 
+# 用于根据一组相机参数（包含旋转矩阵 R 和平移向量 T）计算场景的中心和平移量，以及定义一个场景包围半径
 def getNerfppNorm(cam_info):
     def get_center_and_diag(cam_centers):
         cam_centers = np.hstack(cam_centers)
@@ -239,6 +240,7 @@ def readCamerasFromTransforms(path, transformsfile, depths_folder, white_backgro
             # NeRF 'transform_matrix' is a camera-to-world transform
             c2w = np.array(frame["transform_matrix"])
             # change from OpenGL/Blender camera axes (Y up, Z back) to COLMAP (Y down, Z forward)
+            # 当加载Blender数据时，需要将y和z轴翻转，以得到COLMAP坐标系下的相机表示
             c2w[:3, 1:3] *= -1
 
             # get the world-to-camera transform and set R, T

@@ -40,6 +40,9 @@ class Scene:
         self.train_cameras = {}
         self.test_cameras = {}
 
+        # 位姿和点云文件读取
+        # 对于COLMAP数据，会调用colmap_loader.py文件里的功能,读取点位文件
+        # 如果是合成数据，比如使用Blender合成，那么这个目录下会有.json文件，会根据json来加载场景。但是此时就不再有点云了，因此需要创建一些随机点云（dataset_readers.py）
         if os.path.exists(os.path.join(args.source_path, "sparse")):
             scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.depths, args.eval, args.train_test_exp)
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):

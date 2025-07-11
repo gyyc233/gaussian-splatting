@@ -11,15 +11,18 @@
 
 import torch
 import numpy as np
+# inverse_sigmoid(x)：将 sigmoid 输出值还原为原始 logit 值
+# get_expon_lr_func(lr_init, lr_final, max_steps)：构建指数衰减的学习率调度器
+# build_rotation(scaling, rotation)：根据旋转四元数构建旋转矩阵
 from utils.general_utils import inverse_sigmoid, get_expon_lr_func, build_rotation
-from torch import nn
+from torch import nn # 定义神经网络层与激活函数
 import os
 import json
-from utils.system_utils import mkdir_p
+from utils.system_utils import mkdir_p # 递归创建目录
 from plyfile import PlyData, PlyElement
-from utils.sh_utils import RGB2SH
-from simple_knn._C import distCUDA2
-from utils.graphics_utils import BasicPointCloud
+from utils.sh_utils import RGB2SH # RGB2SH(color)：将 RGB 颜色转换为球谐系数（Spherical Harmonics），用于光照建模
+from simple_knn._C import distCUDA2 # distCUDA2(points)：使用 CUDA 计算点与点之间的平方距离
+from utils.graphics_utils import BasicPointCloud # BasicPointCloud：封装点云的基本信息（位置、颜色、法线），用于初始化高斯模型
 from utils.general_utils import strip_symmetric, build_scaling_rotation
 
 try:
@@ -30,12 +33,20 @@ except:
 class GaussianModel:
 
     def setup_functions(self):
+        """
+        为高斯模型设置激活函数和协方差矩阵
+        """
+
+        # 构建高斯点的协方差矩阵
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
             L = build_scaling_rotation(scaling_modifier * scaling, rotation)
+            # R S S^T R^T
             actual_covariance = L @ L.transpose(1, 2)
             symm = strip_symmetric(actual_covariance)
+            # 返回协方差矩阵的独立元素
             return symm
         
+        # 定义成员变量并赋值
         self.scaling_activation = torch.exp
         self.scaling_inverse_activation = torch.log
 
@@ -48,21 +59,26 @@ class GaussianModel:
 
 
     def __init__(self, sh_degree, optimizer_type="default"):
-        self.active_sh_degree = 0
+        """
+        初始化高斯模型的基本属性和函数映射
+        sh_degree 球谐函数阶数
+        optimizer_type 优化器类型 "default" 或 "sparse_adam"
+        """
+        self.active_sh_degree = 0 # 当前激活的 SH 阶数，训练过程中逐步增加
         self.optimizer_type = optimizer_type
-        self.max_sh_degree = sh_degree  
-        self._xyz = torch.empty(0)
-        self._features_dc = torch.empty(0)
-        self._features_rest = torch.empty(0)
-        self._scaling = torch.empty(0)
-        self._rotation = torch.empty(0)
-        self._opacity = torch.empty(0)
-        self.max_radii2D = torch.empty(0)
-        self.xyz_gradient_accum = torch.empty(0)
-        self.denom = torch.empty(0)
-        self.optimizer = None
-        self.percent_dense = 0
-        self.spatial_lr_scale = 0
+        self.max_sh_degree = sh_degree  # 最大 SH 阶数
+        self._xyz = torch.empty(0) # 高斯点的 3D 坐标
+        self._features_dc = torch.empty(0) # 球谐系数的直流分量（DC component）
+        self._features_rest = torch.empty(0) # 球谐系数的其余分量（Rest）
+        self._scaling = torch.empty(0) # 缩放参数（log space）
+        self._rotation = torch.empty(0) # 旋转四元数
+        self._opacity = torch.empty(0) # 不透明度
+        self.max_radii2D = torch.empty(0) # 每个点在图像空间的最大半径
+        self.xyz_gradient_accum = torch.empty(0) # 梯度累计
+        self.denom = torch.empty(0) # 归一化因子
+        self.optimizer = None # 优化器
+        self.percent_dense = 0 # 控制增密的密度比例
+        self.spatial_lr_scale = 0 # 空间学习率缩放因子
         self.setup_functions()
 
     def capture(self):

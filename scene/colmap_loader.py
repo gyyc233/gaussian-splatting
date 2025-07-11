@@ -122,6 +122,7 @@ def read_points3D_text(path):
 
     return xyzs, rgbs, errors
 
+# points3D.bin转换为points3D.ply
 def read_points3D_binary(path_to_model_file):
     """
     see: src/base/reconstruction.cc
@@ -177,6 +178,7 @@ def read_intrinsics_text(path):
                                             params=params)
     return cameras
 
+# 从images.bin中读取相机外参
 def read_extrinsics_binary(path_to_model_file):
     """
     see: src/base/reconstruction.cc
@@ -211,7 +213,7 @@ def read_extrinsics_binary(path_to_model_file):
                 xys=xys, point3D_ids=point3D_ids)
     return images
 
-
+# 从cameras.bin中读取相机内参
 def read_intrinsics_binary(path_to_model_file):
     """
     see: src/base/reconstruction.cc

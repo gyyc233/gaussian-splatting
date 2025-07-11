@@ -9,31 +9,39 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
-import os
-import torch
-from random import randint
-from utils.loss_utils import l1_loss, ssim
-from gaussian_renderer import render, network_gui
-import sys
-from scene import Scene, GaussianModel
-from utils.general_utils import safe_state, get_expon_lr_func
-import uuid
-from tqdm import tqdm
-from utils.image_utils import psnr
+import os # 操作系统相关的操作，如路径处理
+import torch # 用于张量计算和模型训练
+from random import randint # 随机整数
+from utils.loss_utils import l1_loss, ssim # L1 损失函数和结构相似性指标（SSIM），用于衡量图像重建质量
+from gaussian_renderer import render, network_gui # 渲染函数和 GUI 界面交互模块，用于可视化训练结果
+import sys # 提供对 Python 解释器相关操作的支持，比如退出程序
+from scene import Scene, GaussianModel # 表示场景和高斯模型的类，用于构建 3D 场景并管理高斯点
+from utils.general_utils import safe_state, get_expon_lr_func # 安全状态和学习率
+import uuid # 生成唯一标识符，通常用于创建唯一的模型保存路径
+from tqdm import tqdm # 显示进度条，方便观察训练过程
+from utils.image_utils import psnr # 峰值信噪比（PSNR）评估图像质量
 from argparse import ArgumentParser, Namespace
-from arguments import ModelParams, PipelineParams, OptimizationParams
+from arguments import ModelParams, PipelineParams, OptimizationParams # 封装模型、渲染管线和优化器参数的类
+
+# 尝试导入 SummaryWriter 用于训练日志记录
 try:
     from torch.utils.tensorboard import SummaryWriter
     TENSORBOARD_FOUND = True
 except ImportError:
     TENSORBOARD_FOUND = False
 
+# 尝试导入 fused_ssim 来加速 SSIM 计算
 try:
     from fused_ssim import fused_ssim
     FUSED_SSIM_AVAILABLE = True
 except:
     FUSED_SSIM_AVAILABLE = False
 
+# 损失函数 SparseGaussianAdam
+# SPARSE_ADAM_AVAILABLE决定了separate_sh，如果能够使用稀疏高斯优化器，则会将sh分离
+# 只有在稀疏加速器可用时，才会启用 SparseGaussianAdam 优化器，否则会用普通的优化器
+# sh分离得到两个组件，一个是color，后面传递给C++底层时叫colors_precomp；另一个是sh，就是球谐函数的其他组件（非直流量）
+# colors_precomp：每个高斯点的直接颜色值（RGB），不再用球谐动态计算，适合静态颜色渲染或加速推理
 try:
     from diff_gaussian_rasterization import SparseGaussianAdam
     SPARSE_ADAM_AVAILABLE = True
@@ -42,34 +50,53 @@ except:
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
 
+    # if not condition 当 condition 为假时执行
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
 
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
+    
+    # 创建 gaussians model 与 训练集 scene
     gaussians = GaussianModel(dataset.sh_degree, opt.optimizer_type)
     scene = Scene(dataset, gaussians)
+
+    # 初始化优化器（如 Adam 或 SparseAdam）、学习率调度器
     gaussians.training_setup(opt)
+
+    # 加载检查点
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)
 
+    # 根据数据集配置选择白色或黑色背景
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
+    # 将背景颜色转换为 PyTorch 张量并放到 GPU 上
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
+    # 用于测量每次迭代的时间
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
 
+    # 只有当优化器类型是 "sparse_adam" 且系统支持时才启用稀疏优化
     use_sparse_adam = opt.optimizer_type == "sparse_adam" and SPARSE_ADAM_AVAILABLE 
+
+    # 使用指数衰减方式控制深度图的 L1 损失权重，随着训练逐步降低正则化强度
     depth_l1_weight = get_expon_lr_func(opt.depth_l1_weight_init, opt.depth_l1_weight_final, max_steps=opt.iterations)
 
+    # 获取所有训练用的相机视角，并保存它们的索引
     viewpoint_stack = scene.getTrainCameras().copy()
     viewpoint_indices = list(range(len(viewpoint_stack)))
+
+    # 记录损失值
     ema_loss_for_log = 0.0
     ema_Ll1depth_for_log = 0.0
 
+    # 创建训练进度条，显示当前训练进度
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
+
+    # 运行训练时，会构建GaussianModel和Scene对象，一个放高斯模型，另一个存训练数据，训练时，会进行迭代目标轮数（默认30000）
     for iteration in range(first_iter, opt.iterations + 1):
         if network_gui.conn == None:
             network_gui.try_connect()
@@ -78,6 +105,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 net_image_bytes = None
                 custom_cam, do_training, pipe.convert_SHs_python, pipe.compute_cov3D_python, keep_alive, scaling_modifer = network_gui.receive()
                 if custom_cam != None:
+                    # 渲染，使用的是diff_gaussian_rasterization子模块，执行gaussian渲染（保留梯度信息用于反向传播）
                     net_image = render(custom_cam, gaussians, pipe, background, scaling_modifier=scaling_modifer, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)["render"]
                     net_image_bytes = memoryview((torch.clamp(net_image, min=0, max=1.0) * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy())
                 network_gui.send(net_image_bytes, dataset.source_path)
@@ -115,7 +143,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             alpha_mask = viewpoint_cam.alpha_mask.cuda()
             image *= alpha_mask
 
-        # Loss
+        # Loss 渲染完以后，计算loss并反向传播
         gt_image = viewpoint_cam.original_image.cuda()
         Ll1 = l1_loss(image, gt_image)
         if FUSED_SSIM_AVAILABLE:
@@ -123,6 +151,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         else:
             ssim_value = ssim(image, gt_image)
 
+        # loss是由两部分组成，L1 loss和SSIM
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
 
         # Depth regularization
@@ -189,7 +218,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
 
-def prepare_output_and_logger(args):    
+def prepare_output_and_logger(args):
+    """
+    创建模型保存路径，并初始化 TensorBoard 日志记录器
+    """
     if not args.model_path:
         if os.getenv('OAR_JOB_ID'):
             unique_str=os.getenv('OAR_JOB_ID')
@@ -254,13 +286,16 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
 if __name__ == "__main__":
     # Set up command line argument parser
     parser = ArgumentParser(description="Training script parameters")
-    lp = ModelParams(parser)
-    op = OptimizationParams(parser)
-    pp = PipelineParams(parser)
+
+    lp = ModelParams(parser) # 模型参数
+    op = OptimizationParams(parser) # 优化器参数
+    pp = PipelineParams(parser) # 渲染管线参数
+
     parser.add_argument('--ip', type=str, default="127.0.0.1")
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
+    # 指定在哪些迭代次数进行测试评估/保存高斯模型，默认在第 7000 和 30000 次时触发
     parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 30_000])
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 30_000])
     parser.add_argument("--quiet", action="store_true")
@@ -278,7 +313,11 @@ if __name__ == "__main__":
     # Start GUI server, configure and run training
     if not args.disable_viewer:
         network_gui.init(args.ip, args.port)
+
+    # 如果设置了 --detect_anomaly 参数，PyTorch 会开启自动梯度异常检测
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
+
+    # 训练主函数
     training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
 
     # All done
