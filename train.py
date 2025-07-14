@@ -49,6 +49,17 @@ except:
     SPARSE_ADAM_AVAILABLE = False
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
+    """
+    3dgs 模型训练
+    dataset: ModelParams
+    opt: OptimizationParams
+    pipe: PipelineParams
+    testing_iterations: test_iterations
+    saving_iterations: save_iterations
+    checkpoint_iterations: checkpoint_iterations
+    checkpoint: checkpoint_path
+    debug_from: debug_from
+    """
 
     # if not condition 当 condition 为假时执行
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
@@ -57,14 +68,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     
-    # 创建 gaussians model 与 训练集 scene
+    # 创建 gaussians model 与 训练集 scene 实例
     gaussians = GaussianModel(dataset.sh_degree, opt.optimizer_type)
     scene = Scene(dataset, gaussians)
 
     # 初始化优化器（如 Adam 或 SparseAdam）、学习率调度器
     gaussians.training_setup(opt)
 
-    # 加载检查点
+    # 加载检查点，默认检查点文件为空
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)

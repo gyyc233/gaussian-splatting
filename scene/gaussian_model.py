@@ -204,7 +204,7 @@ class GaussianModel:
 
     def create_from_pcd(self, pcd : BasicPointCloud, cam_infos : int, spatial_lr_scale : float):
         """
-        通过点云数据，相机，学习率初始化高斯模型，将点云准尉可训练的高斯模型
+        通过点云数据，相机，学习率初始化高斯模型，将点云转换为可训练的高斯模型
         """
         self.spatial_lr_scale = spatial_lr_scale
         # 点云数据与点云言责转 torch.Tensor

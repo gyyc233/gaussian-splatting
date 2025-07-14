@@ -146,13 +146,14 @@ def safe_state(silent):
         def write(self, x):
             if not self.silent:
                 if x.endswith("\n"):
-                    old_f.write(x.replace("\n", " [{}]\n".format(str(datetime.now().strftime("%d/%m %H:%M:%S")))))
+                    old_f.write(x.replace("\n", " [{}]\n".format(str(datetime.now().strftime("%d/%m %H:%M:%S"))))) # 附上时间戳
                 else:
-                    old_f.write(x)
+                    old_f.write(x) # silent 为true 则屏蔽打印内容
 
         def flush(self):
             old_f.flush()
 
+    # 将系统的标准输出替换为我们自定义的 F 类实例
     sys.stdout = F(silent)
 
     
