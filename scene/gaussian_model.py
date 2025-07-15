@@ -300,7 +300,7 @@ class GaussianModel:
                                                         max_steps=training_args.iterations)
 
     def update_learning_rate(self, iteration):
-        ''' Learning rate scheduling per step '''
+        ''' Learning rate scheduling per step 在训练过程中根据迭代步数动态更新学习率'''
         # 在训练过程中根据迭代步数动态更新学习率
 
         # 若未加载预训练曝光参数

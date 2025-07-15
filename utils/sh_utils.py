@@ -23,6 +23,8 @@
 
 import torch
 
+# 球谐函数0-4阶的归一化系数
+
 C0 = 0.28209479177387814
 C1 = 0.4886025119029199
 C2 = [
@@ -56,14 +58,15 @@ C4 = [
 
 def eval_sh(deg, sh, dirs):
     """
+    根据给定方向dirs, 计算出SH函数在这些方向上的值
     Evaluate spherical harmonics at unit directions
     using hardcoded SH polynomials.
     Works with torch/np/jnp.
     ... Can be 0 or more batch dimensions.
     Args:
-        deg: int SH deg. Currently, 0-3 supported
-        sh: jnp.ndarray SH coeffs [..., C, (deg + 1) ** 2]
-        dirs: jnp.ndarray unit directions [..., 3]
+        deg: int SH deg. Currently, 0-3 supported SH阶数
+        sh: jnp.ndarray SH coeffs [..., C, (deg + 1) ** 2] 球谐函数系数，可以通过中心化的RGB转换而来
+        dirs: jnp.ndarray unit directions [..., 3] 单位方向向量
     Returns:
         [..., C]
     """
@@ -71,15 +74,20 @@ def eval_sh(deg, sh, dirs):
     coeff = (deg + 1) ** 2
     assert sh.shape[-1] >= coeff
 
+    # 计算第0阶的贡献
     result = C0 * sh[..., 0]
     if deg > 0:
-        x, y, z = dirs[..., 0:1], dirs[..., 1:2], dirs[..., 2:3]
+        # 第1阶
+        x, y, z = dirs[..., 0:1], dirs[..., 1:2], dirs[..., 2:3] # 提取方向分量
+
+        # 加入第1阶sh系数的贡献
         result = (result -
                 C1 * y * sh[..., 1] +
                 C1 * z * sh[..., 2] -
                 C1 * x * sh[..., 3])
 
         if deg > 1:
+            # 2阶SH系数贡献
             xx, yy, zz = x * x, y * y, z * z
             xy, yz, xz = x * y, y * z, x * z
             result = (result +
@@ -90,6 +98,7 @@ def eval_sh(deg, sh, dirs):
                     C2[4] * (xx - yy) * sh[..., 8])
 
             if deg > 2:
+                # 3阶SH系数贡献
                 result = (result +
                 C3[0] * y * (3 * xx - yy) * sh[..., 9] +
                 C3[1] * xy * z * sh[..., 10] +
@@ -100,6 +109,7 @@ def eval_sh(deg, sh, dirs):
                 C3[6] * x * (xx - 3 * yy) * sh[..., 15])
 
                 if deg > 3:
+                    # 4阶SH系数贡献
                     result = (result + C4[0] * xy * (xx - yy) * sh[..., 16] +
                             C4[1] * yz * (3 * xx - yy) * sh[..., 17] +
                             C4[2] * xy * (7 * zz - 1) * sh[..., 18] +
@@ -112,7 +122,18 @@ def eval_sh(deg, sh, dirs):
     return result
 
 def RGB2SH(rgb):
+    """
+    将归一化后的RGB颜色转换为0阶球谐函数
+        rgb: 归一化后的 RGB 值，通常范围在 [0, 1]
+        对应的 SH 表示，形状与 rgb 相同，但每个通道被线性映射到 SH 系数空间
+    """
+
+    # (rgb - 0.5) 将颜色从 [0, 1] 映射到 [-0.5, 0.5]，中心化处理
+    # / C0 将其缩放为符合 SH 表达的数值范围
     return (rgb - 0.5) / C0
 
 def SH2RGB(sh):
+    """
+    将 0 阶 SH 系数还原为 RGB 颜色值 [0,1]
+    """
     return sh * C0 + 0.5

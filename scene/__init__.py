@@ -111,12 +111,12 @@ class Scene:
 
     def getTrainCameras(self, scale=1.0):
         """
-        根据缩放系数获取训练集相机几何
+        根据缩放系数获取训练集相机集合
         """
         return self.train_cameras[scale]
 
     def getTestCameras(self, scale=1.0):
         """
-        根据缩放系数获取测试集相机几何
+        根据缩放系数获取测试集相机集合
         """
         return self.test_cameras[scale]

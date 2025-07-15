@@ -116,28 +116,38 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 net_image_bytes = None
                 custom_cam, do_training, pipe.convert_SHs_python, pipe.compute_cov3D_python, keep_alive, scaling_modifer = network_gui.receive()
                 if custom_cam != None:
-                    # 渲染，使用的是diff_gaussian_rasterization子模块，执行gaussian渲染（保留梯度信息用于反向传播）
+                    # 获取渲染后的图像，内部使用的是diff_gaussian_rasterization子模块，执行gaussian渲染（保留梯度信息用于反向传播）
                     net_image = render(custom_cam, gaussians, pipe, background, scaling_modifier=scaling_modifer, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)["render"]
+
+                    # torch.clamp(..., min=0, max=1.0)* 255).byte() 图像像素值限制在 [0, 1] 转为标准图像，再将浮点性张量转为8位整数
+                    # .permute(1, 2, 0).contiguous().cpu().numpy()改变维度顺序从[C,H,W]→[H,W,C],确保内存连续，再复制回cpu转为numpy数组
+                    # memoryview() 内存视图对象，可以高效传递给图像显示库（如 PyQt、OpenCV）
                     net_image_bytes = memoryview((torch.clamp(net_image, min=0, max=1.0) * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy())
+
                 network_gui.send(net_image_bytes, dataset.source_path)
                 if do_training and ((iteration < int(opt.iterations)) or not keep_alive):
                     break
             except Exception as e:
                 network_gui.conn = None
 
-        iter_start.record()
+        iter_start.record() # 记录本次迭代开始时间戳
 
+        # 根据迭代步数动态更新学习率
         gaussians.update_learning_rate(iteration)
 
         # Every 1000 its we increase the levels of SH up to a maximum degree
+        # 每迭代1000次就将sh阶数逐步提到最大
         if iteration % 1000 == 0:
             gaussians.oneupSHdegree()
 
         # Pick a random Camera
+        # 从训练视角列表中随机选择一个相机视角（viewpoint）用于训练或渲染
+        # 如果 viewpoint_stack 为空（第一次运行或一轮遍历完成），则重新填充它
         if not viewpoint_stack:
             viewpoint_stack = scene.getTrainCameras().copy()
             viewpoint_indices = list(range(len(viewpoint_stack)))
-        rand_idx = randint(0, len(viewpoint_indices) - 1)
+
+        rand_idx = randint(0, len(viewpoint_indices) - 1) # 从剩余视角中随机选择一个索引
         viewpoint_cam = viewpoint_stack.pop(rand_idx)
         vind = viewpoint_indices.pop(rand_idx)
 
@@ -147,16 +157,19 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
+        # 基于这个训练视角viewpoint_cam进行渲染  
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)
+
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
+        # 如果当前视角有 alpha_mask（如前景/背景分割掩码），则应用到渲染结果上
         if viewpoint_cam.alpha_mask is not None:
             alpha_mask = viewpoint_cam.alpha_mask.cuda()
             image *= alpha_mask
 
-        # Loss 渲染完以后，计算loss并反向传播
-        gt_image = viewpoint_cam.original_image.cuda()
-        Ll1 = l1_loss(image, gt_image)
+        # Loss 训练渲染完以后，计算loss并反向传播
+        gt_image = viewpoint_cam.original_image.cuda() # 当前视角真实图像转到gpu
+        Ll1 = l1_loss(image, gt_image) # 计算训练视角与真实图像的l1 loss
         if FUSED_SSIM_AVAILABLE:
             ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
         else:
@@ -165,26 +178,36 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # loss是由两部分组成，L1 loss和SSIM
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
 
-        # Depth regularization
+        # Depth regularization 深度正则化
+        # depth_l1_weight(iteration) 根据当前迭代次数返回深度损失权重（可能随着训练过程衰减或增长）
+        # viewpoint_cam.depth_reliable 表示该视角的深度图是否可靠,不可靠跳过深度损失计算
         Ll1depth_pure = 0.0
         if depth_l1_weight(iteration) > 0 and viewpoint_cam.depth_reliable:
-            invDepth = render_pkg["depth"]
-            mono_invdepth = viewpoint_cam.invdepthmap.cuda()
-            depth_mask = viewpoint_cam.depth_mask.cuda()
+            invDepth = render_pkg["depth"] # 模型渲染的深度图
+            mono_invdepth = viewpoint_cam.invdepthmap.cuda() # 相机视角的深度图
+            depth_mask = viewpoint_cam.depth_mask.cuda() # 深度图中有效区域的掩码
 
+            # 计算深度损失，屏蔽不可靠区域，最终去均值得到深度损失
             Ll1depth_pure = torch.abs((invDepth  - mono_invdepth) * depth_mask).mean()
+            # 将深度损失加权后加入总损失函数中
             Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
             loss += Ll1depth
-            Ll1depth = Ll1depth.item()
+
+            Ll1depth = Ll1depth.item() # 将 tensor 转换为 Python float 保存
         else:
             Ll1depth = 0
 
+        # 参数反向传播
         loss.backward()
 
-        iter_end.record()
+        iter_end.record() # 记录本次迭代结束时间戳
 
+        # 高斯点优化与密度自适应
         with torch.no_grad():
             # Progress bar
+            # 使用 指数移动平均（EMA） 来平滑损失值，避免波动过大
+            # loss.item() 是当前迭代的总损失（包括 L1 + SSIM）
+            # Ll1depth 是本次深度图损失
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
             ema_Ll1depth_for_log = 0.4 * Ll1depth + 0.6 * ema_Ll1depth_for_log
 
@@ -194,37 +217,54 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             if iteration == opt.iterations:
                 progress_bar.close()
 
-            # Log and save
+            # Log and save 
+            # training_report 训练评估模块
             training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp)
+
+            # 如果当前迭代在 saving_iterations 列表中，则保存高斯模型快照
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
 
-            # Densification
+            # Densification 点云密度自适应调整
+            # iteration < opt.densify_until_iter 表示当前迭代仍在允许 点云动态调整 的阶段
             if iteration < opt.densify_until_iter:
                 # Keep track of max radii in image-space for pruning
+                # 跟踪每个可见高斯点在屏幕中曾达到的最大半径
                 gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
+
+                # 添加屏幕上可见的高斯点
                 gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
 
+                # 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
+                    # 根据不透明度，尺寸大小，屏幕点半径，判断要对该点进行克隆或者分裂
                     gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, radii)
                 
+                # 定期重置高斯点不透明度
                 if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
                     gaussians.reset_opacity()
 
             # Optimizer step
             if iteration < opt.iterations:
+                # 曝光参数优化器更新（如果启用）
                 gaussians.exposure_optimizer.step()
+                # 清空梯度缓存
                 gaussians.exposure_optimizer.zero_grad(set_to_none = True)
+
+                # 若启用的稀疏优化器
                 if use_sparse_adam:
+                    # 仅对可见点进行优化
                     visible = radii > 0
                     gaussians.optimizer.step(visible, radii.shape[0])
                     gaussians.optimizer.zero_grad(set_to_none = True)
                 else:
+                    # 否则所有高斯点同一更新
                     gaussians.optimizer.step()
                     gaussians.optimizer.zero_grad(set_to_none = True)
 
+            # 检查点保存
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
@@ -255,6 +295,22 @@ def prepare_output_and_logger(args):
     return tb_writer
 
 def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, train_test_exp):
+    """
+    训练评估模块
+    tb_writer: TensorBoard 写入器
+    iteration: 当前迭代次数
+    Ll1: L1损失
+    loss: 总损失(L1 + SSIM + 深度损失)
+    l1_loss: L1 损失函数
+    elapsed: 当前迭代耗时
+    testing_iterations: 需要执行验证的迭代次数列表
+    scene: 场景对象，包含高斯点云和相机视角
+    renderFunc: 渲染函数
+    renderArgs: 渲染函数参数
+    train_test_exp: 是否使用训练后的曝光参数
+    """
+
+    # 写入训练损失到 TensorBoard
     if tb_writer:
         tb_writer.add_scalar('train_loss_patches/l1_loss', Ll1.item(), iteration)
         tb_writer.add_scalar('train_loss_patches/total_loss', loss.item(), iteration)
@@ -262,34 +318,49 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
 
     # Report test and samples of training set
     if iteration in testing_iterations:
-        torch.cuda.empty_cache()
+        torch.cuda.empty_cache() # 清空gpu缓存
+        # scene.getTestCameras()：获取所有测试视角
+        # scene.getTrainCameras()：获取训练视角，这里只取部分（每隔 5 个取一个）
         validation_configs = ({'name': 'test', 'cameras' : scene.getTestCameras()}, 
                               {'name': 'train', 'cameras' : [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in range(5, 30, 5)]})
 
+        # 对每个视角进行渲染与评估
         for config in validation_configs:
             if config['cameras'] and len(config['cameras']) > 0:
                 l1_test = 0.0
                 psnr_test = 0.0
                 for idx, viewpoint in enumerate(config['cameras']):
+
+                    # renderFunc(...)：调用 render(...) 函数进行图像渲染
+                    # torch.clamp(..., 0.0, 1.0)：确保图像像素值在合法范围内
                     image = torch.clamp(renderFunc(viewpoint, scene.gaussians, *renderArgs)["render"], 0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
+                    
                     if train_test_exp:
+                        # 这种情况只取图像的一半
                         image = image[..., image.shape[-1] // 2:]
                         gt_image = gt_image[..., gt_image.shape[-1] // 2:]
+
                     if tb_writer and (idx < 5):
                         tb_writer.add_images(config['name'] + "_view_{}/render".format(viewpoint.image_name), image[None], global_step=iteration)
                         if iteration == testing_iterations[0]:
                             tb_writer.add_images(config['name'] + "_view_{}/ground_truth".format(viewpoint.image_name), gt_image[None], global_step=iteration)
+
+                    # 计算l1损失与峰值信噪比
                     l1_test += l1_loss(image, gt_image).mean().double()
                     psnr_test += psnr(image, gt_image).mean().double()
+
+                # 取平均
                 psnr_test /= len(config['cameras'])
-                l1_test /= len(config['cameras'])          
+                l1_test /= len(config['cameras'])
                 print("\n[ITER {}] Evaluating {}: L1 {} PSNR {}".format(iteration, config['name'], l1_test, psnr_test))
+
                 if tb_writer:
                     tb_writer.add_scalar(config['name'] + '/loss_viewpoint - l1_loss', l1_test, iteration)
                     tb_writer.add_scalar(config['name'] + '/loss_viewpoint - psnr', psnr_test, iteration)
 
         if tb_writer:
+            # 记录点与不确定度分与与高斯点总数
             tb_writer.add_histogram("scene/opacity_histogram", scene.gaussians.get_opacity, iteration)
             tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
         torch.cuda.empty_cache()
