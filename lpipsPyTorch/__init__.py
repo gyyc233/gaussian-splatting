@@ -2,6 +2,7 @@ import torch
 
 from .modules.lpips import LPIPS
 
+# 计算两个图像张量之间的 感知相似性损失（LPIPS）
 
 def lpips(x: torch.Tensor,
           y: torch.Tensor,
