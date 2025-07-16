@@ -28,6 +28,9 @@ except:
 
 
 def render_set(model_path, name, iteration, views, gaussians, pipeline, background, train_test_exp, separate_sh):
+    """
+    对一组相机视角，使用高斯模型渲染，并将生成的图像和对应的原图保存
+    """
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
     gts_path = os.path.join(model_path, name, "ours_{}".format(iteration), "gt")
 
@@ -35,6 +38,7 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
     makedirs(gts_path, exist_ok=True)
 
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
+        # 对每个视角渲染，得到渲染后的图像
         rendering = render(view, gaussians, pipeline, background, use_trained_exp=train_test_exp, separate_sh=separate_sh)["render"]
         gt = view.original_image[0:3, :, :]
 
@@ -42,21 +46,28 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
             rendering = rendering[..., rendering.shape[-1] // 2:]
             gt = gt[..., gt.shape[-1] // 2:]
 
+        # 保存渲染对比结果
         torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
         torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
 
 def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool, separate_sh: bool):
+    """
+    使用训练好的高斯模型来渲染训练集和测试集的多视角图像
+    """
     with torch.no_grad():
         gaussians = GaussianModel(dataset.sh_degree)
+        # 根据提供的数据集和高斯模型初始化scene对象，并根据指定的迭代次数加载模型权重
         scene = Scene(dataset, gaussians, load_iteration=iteration, shuffle=False)
 
         bg_color = [1,1,1] if dataset.white_background else [0, 0, 0]
         background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
         if not skip_train:
+             # 调用 render_set 函数对训练集相机进行渲染
              render_set(dataset.model_path, "train", scene.loaded_iter, scene.getTrainCameras(), gaussians, pipeline, background, dataset.train_test_exp, separate_sh)
 
         if not skip_test:
+             # 调用 render_set 函数对测试集相机进行渲染
              render_set(dataset.model_path, "test", scene.loaded_iter, scene.getTestCameras(), gaussians, pipeline, background, dataset.train_test_exp, separate_sh)
 
 if __name__ == "__main__":

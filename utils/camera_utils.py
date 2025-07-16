@@ -20,6 +20,7 @@ WARNED = False
 def loadCam(args, id, cam_info, resolution_scale, is_nerf_synthetic, is_test_dataset):
     image = Image.open(cam_info.image_path)
 
+    # 如果提供了深度图路径，则读取深度图
     if cam_info.depth_path != "":
         try:
             if is_nerf_synthetic:
@@ -44,6 +45,7 @@ def loadCam(args, id, cam_info, resolution_scale, is_nerf_synthetic, is_test_dat
         resolution = round(orig_w/(resolution_scale * args.resolution)), round(orig_h/(resolution_scale * args.resolution))
     else:  # should be a type that converts to float
         if args.resolution == -1:
+            # 此时需要缩放到1600
             if orig_w > 1600:
                 global WARNED
                 if not WARNED:
@@ -67,6 +69,9 @@ def loadCam(args, id, cam_info, resolution_scale, is_nerf_synthetic, is_test_dat
                   train_test_exp=args.train_test_exp, is_test_dataset=is_test_dataset, is_test_view=cam_info.is_test)
 
 def cameraList_from_camInfos(cam_infos, resolution_scale, args, is_nerf_synthetic, is_test_dataset):
+    """
+    将一组相机信息转为多个Camera对象
+    """
     camera_list = []
 
     for id, c in enumerate(cam_infos):
@@ -75,6 +80,9 @@ def cameraList_from_camInfos(cam_infos, resolution_scale, args, is_nerf_syntheti
     return camera_list
 
 def camera_to_JSON(id, camera : Camera):
+    """
+    将相机对象转为JSON
+    """
     Rt = np.zeros((4, 4))
     Rt[:3, :3] = camera.R.transpose()
     Rt[:3, 3] = camera.T

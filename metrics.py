@@ -14,6 +14,7 @@ import os
 from PIL import Image
 import torch
 import torchvision.transforms.functional as tf
+# ssim, psnr, lpips：图像质量评估指标
 from utils.loss_utils import ssim
 from lpipsPyTorch import lpips
 import json
@@ -22,6 +23,9 @@ from utils.image_utils import psnr
 from argparse import ArgumentParser
 
 def readImages(renders_dir, gt_dir):
+    """
+    读取渲染图像与真实图像
+    """
     renders = []
     gts = []
     image_names = []

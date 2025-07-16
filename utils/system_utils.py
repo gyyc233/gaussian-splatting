@@ -14,6 +14,9 @@ from os import makedirs, path
 import os
 
 def mkdir_p(folder_path):
+    """
+    创建目录
+    """
     # Creates a directory. equivalent to using mkdir -p on the command line
     try:
         makedirs(folder_path)
@@ -24,5 +27,8 @@ def mkdir_p(folder_path):
             raise
 
 def searchForMaxIteration(folder):
+    """
+    查找指定文件夹中的最大迭代次数
+    """
     saved_iters = [int(fname.split("_")[-1]) for fname in os.listdir(folder)]
     return max(saved_iters)

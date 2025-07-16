@@ -15,12 +15,22 @@ import numpy as np
 from typing import NamedTuple
 
 class BasicPointCloud(NamedTuple):
+    """
+    Args:
+        points: 3D点
+        colors: 颜色
+        normals: 法向量
+    """
     points : np.array
     colors : np.array
     normals : np.array
 
 def geom_transform_points(points, transf_matrix):
+    """
+    对一组3D点应用一个齐次变换
+    """
     P, _ = points.shape
+
     ones = torch.ones(P, 1, dtype=points.dtype, device=points.device)
     points_hom = torch.cat([points, ones], dim=1)
     points_out = torch.matmul(points_hom, transf_matrix.unsqueeze(0))
@@ -29,6 +39,9 @@ def geom_transform_points(points, transf_matrix):
     return (points_out[..., :3] / denom).squeeze(dim=0)
 
 def getWorld2View(R, t):
+    """
+    获取世界到相机的刚体变换
+    """
     Rt = np.zeros((4, 4))
     Rt[:3, :3] = R.transpose()
     Rt[:3, 3] = t
@@ -36,6 +49,9 @@ def getWorld2View(R, t):
     return np.float32(Rt)
 
 def getWorld2View2(R, t, translate=np.array([.0, .0, .0]), scale=1.0):
+    """
+    获取世界到相机的刚体变换，支持对相机位置微调
+    """
     Rt = np.zeros((4, 4))
     Rt[:3, :3] = R.transpose()
     Rt[:3, 3] = t
@@ -43,6 +59,8 @@ def getWorld2View2(R, t, translate=np.array([.0, .0, .0]), scale=1.0):
 
     C2W = np.linalg.inv(Rt)
     cam_center = C2W[:3, 3]
+
+    # 对相机中心进行平移预缩放
     cam_center = (cam_center + translate) * scale
     C2W[:3, 3] = cam_center
     Rt = np.linalg.inv(C2W)
@@ -52,6 +70,7 @@ def getProjectionMatrix(znear, zfar, fovX, fovY):
     tanHalfFovY = math.tan((fovY / 2))
     tanHalfFovX = math.tan((fovX / 2))
 
+    # 根据近平面和视场角计算视锥体上下左右四个边的位置
     top = tanHalfFovY * znear
     bottom = -top
     right = tanHalfFovX * znear
@@ -61,6 +80,7 @@ def getProjectionMatrix(znear, zfar, fovX, fovY):
 
     z_sign = 1.0
 
+    # 投影变换矩阵
     P[0, 0] = 2.0 * znear / (right - left)
     P[1, 1] = 2.0 * znear / (top - bottom)
     P[0, 2] = (right + left) / (right - left)
@@ -71,7 +91,19 @@ def getProjectionMatrix(znear, zfar, fovX, fovY):
     return P
 
 def fov2focal(fov, pixels):
+    """
+    视场角转换为焦距
+    args:
+        fov: 视场角
+        pixels: 视场角方向对应的图像宽度或者高度
+    """
     return pixels / (2 * math.tan(fov / 2))
 
 def focal2fov(focal, pixels):
+    """
+    焦距转换为视场角
+    args:
+        focal: 焦距
+        pixels: 焦距方向对应的图像宽度或者高度
+    """
     return 2*math.atan(pixels/(2*focal))

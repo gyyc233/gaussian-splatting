@@ -9,10 +9,13 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+# colmap 相机数据加载
+
 import numpy as np
 import collections
 import struct
 
+# 定义明明元组用于秒速相机模型信息
 CameraModel = collections.namedtuple(
     "CameraModel", ["model_id", "model_name", "num_params"])
 Camera = collections.namedtuple(
@@ -41,6 +44,9 @@ CAMERA_MODEL_NAMES = dict([(camera_model.model_name, camera_model)
 
 
 def qvec2rotmat(qvec):
+    """
+    四元数转旋转矩阵
+    """
     return np.array([
         [1 - 2 * qvec[2]**2 - 2 * qvec[3]**2,
          2 * qvec[1] * qvec[2] - 2 * qvec[0] * qvec[3],
@@ -53,6 +59,9 @@ def qvec2rotmat(qvec):
          1 - 2 * qvec[1]**2 - 2 * qvec[2]**2]])
 
 def rotmat2qvec(R):
+    """
+    旋转矩阵转四元数
+    """
     Rxx, Ryx, Rzx, Rxy, Ryy, Rzy, Rxz, Ryz, Rzz = R.flat
     K = np.array([
         [Rxx - Ryy - Rzz, 0, 0, 0],

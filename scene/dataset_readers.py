@@ -119,6 +119,9 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, depths_params, images_fold
     return cam_infos
 
 def fetchPly(path):
+    """
+    读取ply文件，点坐标，颜色（归一化），法向量
+    """
     plydata = PlyData.read(path)
     vertices = plydata['vertex']
     positions = np.vstack([vertices['x'], vertices['y'], vertices['z']]).T
@@ -127,6 +130,9 @@ def fetchPly(path):
     return BasicPointCloud(points=positions, colors=colors, normals=normals)
 
 def storePly(path, xyz, rgb):
+    """
+    ply点云文件保存
+    """
     # Define the dtype for the structured array
     dtype = [('x', 'f4'), ('y', 'f4'), ('z', 'f4'),
             ('nx', 'f4'), ('ny', 'f4'), ('nz', 'f4'),

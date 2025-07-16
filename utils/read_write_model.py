@@ -27,6 +27,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+# 包含读取和写入 COLMAP 模型文件（如 cameras.bin, images.bin, points3D.bin）的功能
 
 import os
 import collections
