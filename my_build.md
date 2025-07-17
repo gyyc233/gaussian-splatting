@@ -1,6 +1,7 @@
 - [3DGS win11 环境配置与部署验证](#3dgs-win11-环境配置与部署验证)
   - [准备项](#准备项)
   - [环境安装](#环境安装)
+  - [第三方库说明](#第三方库说明)
   - [演示视频地址](#演示视频地址)
 
 # 3DGS win11 环境配置与部署验证
@@ -61,6 +62,20 @@ python train.py -s data/tandt/train
 # viewer
 .\viewers\bin\SIBR_gaussianViewer_app -m ./output/
 ```
+
+## 第三方库说明
+
+- diff-gaussian-rasterization
+
+借助cuda实现了 3dgs--2dgs 光栅化和渲染的前向传播，损失函数对球谐系数渲染颜色，高斯球位置，缩放，旋转，协方差矩阵的反向优化
+
+- fused-ssim
+
+提供高效的结构相似性指数测量(SSIM)方法，比较两张图像的相似度
+
+- simple-knn
+
+寻找空间点的knn
 
 ## 演示视频地址
 
