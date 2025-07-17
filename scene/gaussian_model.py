@@ -204,7 +204,7 @@ class GaussianModel:
 
     def create_from_pcd(self, pcd : BasicPointCloud, cam_infos : int, spatial_lr_scale : float):
         """
-        通过点云数据，相机，学习率初始化高斯模型，将点云转换为可训练的高斯模型
+        通过点云数据，相机，学习率初始化高斯模型，将点云转换为可训练的高斯模型, 初始化球谐系数为0
         """
         self.spatial_lr_scale = spatial_lr_scale
         # 点云数据与点云言责转 torch.Tensor
@@ -409,6 +409,8 @@ class GaussianModel:
         extra_f_names = sorted(extra_f_names, key = lambda x: int(x.split('_')[-1]))
         assert len(extra_f_names)==3*(self.max_sh_degree + 1) ** 2 - 3
         features_extra = np.zeros((xyz.shape[0], len(extra_f_names)))
+
+        # 从ply中设置球谐系数初始值
         for idx, attr_name in enumerate(extra_f_names):
             features_extra[:, idx] = np.asarray(plydata.elements[0][attr_name])
         # Reshape (P,F*SH_coeffs) to (P, F, SH_coeffs except DC)
