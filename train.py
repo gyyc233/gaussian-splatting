@@ -44,7 +44,7 @@ except:
 # colors_precomp：每个高斯点的直接颜色值（RGB），不再用球谐动态计算，适合静态颜色渲染或加速推理
 try:
     from diff_gaussian_rasterization import SparseGaussianAdam
-    SPARSE_ADAM_AVAILABLE = True
+    SPARSE_ADAM_AVAILABLE = True # 默认没有 SparseGaussianAdam
 except:
     SPARSE_ADAM_AVAILABLE = False
 
@@ -109,26 +109,27 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
     # 运行训练时，会构建GaussianModel和Scene对象，一个放高斯模型，另一个存训练数据，训练时，会进行迭代目标轮数（默认30000）
     for iteration in range(first_iter, opt.iterations + 1):
-        if network_gui.conn == None:
-            network_gui.try_connect()
-        while network_gui.conn != None:
-            try:
-                net_image_bytes = None
-                custom_cam, do_training, pipe.convert_SHs_python, pipe.compute_cov3D_python, keep_alive, scaling_modifer = network_gui.receive()
-                if custom_cam != None:
-                    # 获取渲染后的图像，内部使用的是diff_gaussian_rasterization子模块，执行gaussian渲染（保留梯度信息用于反向传播）
-                    net_image = render(custom_cam, gaussians, pipe, background, scaling_modifier=scaling_modifer, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)["render"]
+        # network_gui 不影响渲染主流程
+        # if network_gui.conn == None:
+        #     network_gui.try_connect()
+        # while network_gui.conn != None:
+        #     try:
+        #         net_image_bytes = None
+        #         custom_cam, do_training, pipe.convert_SHs_python, pipe.compute_cov3D_python, keep_alive, scaling_modifer = network_gui.receive()
+        #         if custom_cam != None:
+        #             # 获取渲染后的图像，内部使用的是diff_gaussian_rasterization子模块，执行gaussian渲染（保留梯度信息用于反向传播）
+        #             net_image = render(custom_cam, gaussians, pipe, background, scaling_modifier=scaling_modifer, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)["render"]
 
-                    # torch.clamp(..., min=0, max=1.0)* 255).byte() 图像像素值限制在 [0, 1] 转为标准图像，再将浮点性张量转为8位整数
-                    # .permute(1, 2, 0).contiguous().cpu().numpy()改变维度顺序从[C,H,W]→[H,W,C],确保内存连续，再复制回cpu转为numpy数组
-                    # memoryview() 内存视图对象，可以高效传递给图像显示库（如 PyQt、OpenCV）
-                    net_image_bytes = memoryview((torch.clamp(net_image, min=0, max=1.0) * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy())
+        #             # torch.clamp(..., min=0, max=1.0)* 255).byte() 图像像素值限制在 [0, 1] 转为标准图像，再将浮点性张量转为8位整数
+        #             # .permute(1, 2, 0).contiguous().cpu().numpy()改变维度顺序从[C,H,W]→[H,W,C],确保内存连续，再复制回cpu转为numpy数组
+        #             # memoryview() 内存视图对象，可以高效传递给图像显示库（如 PyQt、OpenCV）
+        #             net_image_bytes = memoryview((torch.clamp(net_image, min=0, max=1.0) * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy())
 
-                network_gui.send(net_image_bytes, dataset.source_path)
-                if do_training and ((iteration < int(opt.iterations)) or not keep_alive):
-                    break
-            except Exception as e:
-                network_gui.conn = None
+        #         network_gui.send(net_image_bytes, dataset.source_path)
+        #         if do_training and ((iteration < int(opt.iterations)) or not keep_alive):
+        #             break
+        #     except Exception as e:
+        #         network_gui.conn = None
 
         iter_start.record() # 记录本次迭代开始时间戳
 
@@ -203,6 +204,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         iter_end.record() # 记录本次迭代结束时间戳
 
         # 高斯点优化与密度自适应
+        # with 是将一些语句打包（高斯自适应密度调整等），在执行这些流程时，不执行梯度计算
         with torch.no_grad():
             # Progress bar
             # 使用 指数移动平均（EMA） 来平滑损失值，避免波动过大
