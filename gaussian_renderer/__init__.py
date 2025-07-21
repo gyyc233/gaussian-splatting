@@ -95,6 +95,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             # 方向向量: 相机指向高斯点中心
             dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
             dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
+            # 通过球谐系数计算rgb颜色
             sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
             colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0) # 限制张量的最小值
         else:
@@ -109,6 +110,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     # 将可见的高斯进行光栅化(diff_gaussian_rasterization)，并获取其半径（在屏幕上）
+    # 最终调用 forward.cu 按顺序调用 preprocessCUDA 与 renderCUDA
+    # TODO: preprocessCUDA: 通过cuda按像素完成3d到2d的泼溅过程;  renderCUDA: 完成体渲染过程
     # 输入: 3d高斯点模型参数，输出: 渲染的图像，每个高斯点在屏幕上的半径，深度图
     if separate_sh:
         rendered_image, radii, depth_image = rasterizer(
@@ -131,6 +134,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             scales = scales,
             rotations = rotations,
             cov3D_precomp = cov3D_precomp)
+        
+    # 泼溅与体渲染完成
         
     # Apply exposure to rendered image (training only)
     if use_trained_exp:

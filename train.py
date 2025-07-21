@@ -158,7 +158,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
-        # 基于这个训练视角viewpoint_cam进行渲染  
+        # 基于这个训练视角viewpoint_cam进行渲染，内部完成3d->2d泼溅和体渲染过程
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)
 
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
@@ -168,7 +168,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             alpha_mask = viewpoint_cam.alpha_mask.cuda()
             image *= alpha_mask
 
-        # Loss 训练渲染完以后，计算loss并反向传播
+        # Loss 
+        # 训练渲染完以后，计算loss并反向传播
         gt_image = viewpoint_cam.original_image.cuda() # 当前视角真实图像转到gpu
         Ll1 = l1_loss(image, gt_image) # 计算训练视角与真实图像的l1 loss
         if FUSED_SSIM_AVAILABLE:
@@ -199,6 +200,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             Ll1depth = 0
 
         # 参数反向传播
+        # TODO: 这里的反向传播如何调用 CudaRasterizer::Rasterizer::backward
         loss.backward()
 
         iter_end.record() # 记录本次迭代结束时间戳
