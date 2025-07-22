@@ -200,7 +200,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             Ll1depth = 0
 
         # 参数反向传播
-        # TODO: 这里的反向传播如何调用 CudaRasterizer::Rasterizer::backward
+        # TODO: 这里的反向传播调用 Differential Gaussian Rasterization init.py 中的 backward() 静态函数
         loss.backward()
 
         iter_end.record() # 记录本次迭代结束时间戳
