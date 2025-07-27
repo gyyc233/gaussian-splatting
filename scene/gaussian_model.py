@@ -206,6 +206,7 @@ class GaussianModel:
         """
         通过点云数据，相机，学习率初始化高斯模型，将点云转换为可训练的高斯模型, 初始化球谐系数为0
         """
+        print("create from pcd")
         self.spatial_lr_scale = spatial_lr_scale
         # 点云数据与点云言责转 torch.Tensor
         fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float().cuda()
@@ -383,6 +384,7 @@ class GaussianModel:
         """
         从ply中读取3D高斯模型
         """
+        print("load from ply")
         plydata = PlyData.read(path)
         if use_train_test_exp:
             exposure_file = os.path.join(os.path.dirname(path), os.pardir, os.pardir, "exposure.json")

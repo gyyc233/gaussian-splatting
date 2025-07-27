@@ -130,10 +130,12 @@ def RGB2SH(rgb):
 
     # (rgb - 0.5) 将颜色从 [0, 1] 映射到 [-0.5, 0.5]，中心化处理
     # / C0 将其缩放为符合 SH 表达的数值范围
+    print('rgb [0,1]-->sh')
     return (rgb - 0.5) / C0
 
 def SH2RGB(sh):
     """
     将 0 阶 SH 系数还原为 RGB 颜色值 [0,1]
     """
+    print('sh-->rgb [0,1]')
     return sh * C0 + 0.5

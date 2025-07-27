@@ -120,8 +120,9 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, depths_params, images_fold
 
 def fetchPly(path):
     """
-    读取ply文件，点坐标，颜色（归一化），法向量
+    读取ply文件，点坐标，颜色（这里把RGB做了归一化处理[0-255]-->[0,1]），法向量
     """
+    print('Reading ply file: %s, fetch to pcd' % path)
     plydata = PlyData.read(path)
     vertices = plydata['vertex']
     positions = np.vstack([vertices['x'], vertices['y'], vertices['z']]).T
@@ -220,6 +221,7 @@ def readColmapSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8):
             xyz, rgb, _ = read_points3D_text(txt_path)
         storePly(ply_path, xyz, rgb)
     try:
+        # 将ply转pcd并进行颜色归一化处理
         pcd = fetchPly(ply_path)
     except:
         pcd = None
