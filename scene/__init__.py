@@ -84,14 +84,17 @@ class Scene:
             print("Loading Test Cameras")
             self.test_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.test_cameras, resolution_scale, args, scene_info.is_nerf_synthetic, True)
 
-        # 从ply加载高斯模型或者从原始点云构建
+        # 从ply加载高斯模型或者从原始点云构建3dgs模型
         if self.loaded_iter:
             self.gaussians.load_ply(os.path.join(self.model_path,
                                                            "point_cloud",
                                                            "iteration_" + str(self.loaded_iter),
                                                            "point_cloud.ply"), args.train_test_exp)
+            print("create gaussian via load ply")
         else:
+            # 从归一化颜色的点云中初始化这些点云的高斯模型
             self.gaussians.create_from_pcd(scene_info.point_cloud, scene_info.train_cameras, self.cameras_extent)
+            print("create gaussian via pcd")
 
     def save(self, iteration):
         """

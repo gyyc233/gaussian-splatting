@@ -65,7 +65,7 @@ class ModelParams(ParamGroup):
         self.train_test_exp = False # 是否训练或测试曝光参数
         self.data_device = "cuda" # 数据设备
         self.eval = False # 是否进入评估模式
-        super().__init__(parser, "Loading Parameters", sentinel)
+        super().__init__(parser, "Loading Parameters", sentinel) # 当子类和父类都写了 __init__() 方法时，父类的 __init__() 方法会被子类覆盖。要调用父类的 __init__() 方法，需要使用 super()
 
     def extract(self, args):
         g = super().extract(args)

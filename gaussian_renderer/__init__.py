@@ -114,6 +114,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # TODO: preprocessCUDA: 通过cuda按像素完成3d到2d的泼溅过程;  renderCUDA: 完成体渲染过程
     # 输入: 3d高斯点模型参数，输出: 渲染的图像，每个高斯点在屏幕上的半径，深度图
     if separate_sh:
+        # print("separate_sh 1")
         rendered_image, radii, depth_image = rasterizer(
             means3D = means3D,
             means2D = means2D,
@@ -125,6 +126,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             rotations = rotations,
             cov3D_precomp = cov3D_precomp)
     else:
+        # print("separate_sh 0")
+        # 在执行下面这句时，就会自动开始 gaussian 前向传播过程
         rendered_image, radii, depth_image = rasterizer(
             means3D = means3D,
             means2D = means2D,

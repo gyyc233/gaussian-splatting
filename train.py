@@ -142,7 +142,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             gaussians.oneupSHdegree()
 
         # Pick a random Camera
-        # 从训练视角列表中随机选择一个相机视角（viewpoint）用于训练或渲染
+        # 从训练视角列表中随机选择一个相机视角（viewpoint）用于渲染
         # 如果 viewpoint_stack 为空（第一次运行或一轮遍历完成），则重新填充它
         if not viewpoint_stack:
             viewpoint_stack = scene.getTrainCameras().copy()
@@ -373,7 +373,7 @@ if __name__ == "__main__":
     # Set up command line argument parser
     parser = ArgumentParser(description="Training script parameters")
 
-    lp = ModelParams(parser) # 模型参数
+    lp = ModelParams(parser) # 3D高斯模型参数
     op = OptimizationParams(parser) # 优化器参数
     pp = PipelineParams(parser) # 渲染管线参数
 

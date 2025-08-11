@@ -41,8 +41,8 @@ class GaussianModel:
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
             L = build_scaling_rotation(scaling_modifier * scaling, rotation)
             # R S S^T R^T
-            actual_covariance = L @ L.transpose(1, 2)
-            symm = strip_symmetric(actual_covariance)
+            actual_covariance = L @ L.transpose(1, 2) # 使用公式：L * L^T计算实际的协方差矩阵
+            symm = strip_symmetric(actual_covariance) # 提取对称分量
             # 返回协方差矩阵的独立元素
             return symm
         
@@ -210,6 +210,7 @@ class GaussianModel:
         self.spatial_lr_scale = spatial_lr_scale
         # 点云数据与点云言责转 torch.Tensor
         fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float().cuda()
+        # 归一化后的颜色转SH
         fused_color = RGB2SH(torch.tensor(np.asarray(pcd.colors)).float().cuda())
 
         # 创建 (N, 3, SH_coeffs) 的球谐系数张量
