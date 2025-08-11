@@ -184,8 +184,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # depth_l1_weight(iteration) 根据当前迭代次数返回深度损失权重（可能随着训练过程衰减或增长）
         # viewpoint_cam.depth_reliable 表示该视角的深度图是否可靠,不可靠跳过深度损失计算
         Ll1depth_pure = 0.0
+
+        # L1深度正则化损失计算
         if depth_l1_weight(iteration) > 0 and viewpoint_cam.depth_reliable:
-            invDepth = render_pkg["depth"] # 模型渲染的深度图
+            invDepth = render_pkg["depth"] # 3dgs模型渲染的深度图
             mono_invdepth = viewpoint_cam.invdepthmap.cuda() # 相机视角的深度图
             depth_mask = viewpoint_cam.depth_mask.cuda() # 深度图中有效区域的掩码
 
@@ -197,6 +199,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
             Ll1depth = Ll1depth.item() # 将 tensor 转换为 Python float 保存
         else:
+            # 跑了一遍train, Ll1depth一直为0
             Ll1depth = 0
 
         # 参数反向传播
