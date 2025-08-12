@@ -565,7 +565,7 @@ class GaussianModel:
 
     def densify_and_split(self, grads, grad_threshold, scene_extent, N=2):
         """
-        对梯度较大且缩放较大的高斯点进行分裂 split, 生成多个新点并更新模型与优化器状态
+        对梯度较大且尺寸较大的高斯点进行分裂 split, 生成多个新点并更新模型与优化器状态
         """
 
         # 根据梯度和缩放大小选择需要分裂的点，然后通过随机采样生成多个新点，并更新模型参数
@@ -577,6 +577,7 @@ class GaussianModel:
         # grads 填充前 grads.shape[0] 个位置
         padded_grad[:grads.shape[0]] = grads.squeeze()
 
+        # 选择梯度大且尺度大于场景范围一定比例的高斯点
         # padded_grad >= grad_threshold 筛选梯度大于阈值的点
         selected_pts_mask = torch.where(padded_grad >= grad_threshold, True, False)
         # 当前缩放大于某个基于场景范围的比例 self.percent_dense * scene_extent
@@ -585,19 +586,21 @@ class GaussianModel:
                                               torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent)
 
         # 生成新的点云数据
+        # 以原始点的尺度 self.get_scaling，作为标准差，原始点均值mean 进行正态分布采样,默认新生成2个点
         stds = self.get_scaling[selected_pts_mask].repeat(N,1) # 提取选中点的缩放参数并重复 N 次
 
-        # 在以原点为中心、缩放为标准差的正态分布中采样
+        # 在以原点为中心、缩放为标准差的正态分布中采样生成新点
         means =torch.zeros((stds.size(0), 3),device="cuda")
-        samples = torch.normal(mean=means, std=stds)
+        samples = torch.normal(mean=means, std=stds) # 使用正态分布生成新点
 
+        # 新点的其它属性从原始点复制
         # 构建旋转矩阵并重复 N 次
         rots = build_rotation(self._rotation[selected_pts_mask]).repeat(N,1,1)
 
         # 使用旋转矩阵将采样点映射到世界坐标系并加到原始点上
         new_xyz = torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self.get_xyz[selected_pts_mask].repeat(N, 1)
 
-        # 缩放缩小为原来的 1/(0.8*N)
+        # 新点缩放缩小为原来的 1/(0.8*N)
         new_scaling = self.scaling_inverse_activation(self.get_scaling[selected_pts_mask].repeat(N,1) / (0.8*N))
 
         # 其它属性从原始点复制，新点继承旧点的颜色、光照、方向等信息
@@ -610,7 +613,7 @@ class GaussianModel:
         # 将新点拼接到现有张量中
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_tmp_radii)
 
-        # 原始点保留，新增点加入后统一裁剪
+        # 原始点标记为需要删除的点，新增点加入后统一裁剪
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
 
         # prune_filter 包含原始 mask 和新增点的 False 掩码（即新增点保留）
@@ -618,16 +621,18 @@ class GaussianModel:
 
     def densify_and_clone(self, grads, grad_threshold, scene_extent):
         """
-        对梯度较大，缩放较小的高斯点进行克隆
+        对梯度较大，尺度较小的高斯点进行克隆
+        高梯度区域代表图像变化剧烈的地方（如边缘、纹理细节），而小尺度的点意味着该点还未充分覆盖其周围区域,因此需要通过克隆来增加这些区域的细节表现力
         """
         # Extract points that satisfy the gradient condition
-        # 检测高斯点的梯度与梯度阈值
+        # 计算每个点梯度的范数，选择梯度大于等于阈值的高斯点
         selected_pts_mask = torch.where(torch.norm(grads, dim=-1) >= grad_threshold, True, False)
-        # 检测高斯点的当前缩放小于某个基于场景范围的比例 self.percent_dense * scene_extent
-        # 两个条件同时满足则进行高斯点克隆，3dgs参数也进行克隆
+        # 筛选尺度较小的高斯点，获取每个点的最大尺度量，只要尺度小于场景范围的一定比例
+        # 使用 torch.logical_and 逻辑与条件合并两个条件，同时满足高梯度和小尺度
         selected_pts_mask = torch.logical_and(selected_pts_mask,
                                               torch.max(self.get_scaling, dim=1).values <= self.percent_dense*scene_extent)
         
+        # 提取选中点的相关属性
         new_xyz = self._xyz[selected_pts_mask]
         new_features_dc = self._features_dc[selected_pts_mask]
         new_features_rest = self._features_rest[selected_pts_mask]
@@ -638,6 +643,7 @@ class GaussianModel:
         new_tmp_radii = self.tmp_radii[selected_pts_mask]
 
         # 将新点拼接到现有张量中
+        # 将这些新克隆的点添加到现有的点云中
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_tmp_radii)
 
     def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size, radii):
@@ -645,17 +651,17 @@ class GaussianModel:
         TODO: 根据梯度信息对高斯点进行增密（克隆或分裂）并剔除低质量点（如不透明度过低、过大等 
         """
         grads = self.xyz_gradient_accum / self.denom # 计算每个点的平均梯度
-        grads[grads.isnan()] = 0.0
+        grads[grads.isnan()] = 0.0 # 处理无效值
 
         self.tmp_radii = radii # 表示每个点在图像空间中的大小，用于后续裁剪判断
 
-        # 执行克隆与分裂
-        # 梯度大，缩放小的点->克隆
-        # 梯度小，缩放大的点->分裂
+        # 执行克隆与分裂，进行增密
+        # 梯度大，尺度小的点->克隆
+        # 梯度小，尺度大的点->原始点分裂为新点，原始点待会删除
         self.densify_and_clone(grads, max_grad, extent)
         self.densify_and_split(grads, max_grad, extent)
 
-        # 构建剔除掩码
+        # 构建剔除掩码，对低透明度点，屏幕空间半径过大点，世界空间尺度过大点清理
         # get_opacity < min_opacity	不透明度过低的点
         # max_radii2D > max_screen_size	在图像空间中过大的点
         # scaling.max(...) > 0.1 * extent	在世界空间中过大的点
